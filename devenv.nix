@@ -4,8 +4,12 @@
   # https://devenv.sh/basics/
   env.FEED = "https://brianrayburn.tech/blog/rss.xml";
 
+  scripts.rss_to_print.exec = ''
+    python $DEVENV_ROOT/rss-posse/__init__.py rss-to-print $RSS_FEED_URL
+  '';
+
   scripts.post_rss_to_bluesky.exec = ''
-    python $DEVENV_ROOT/rss-posse/__init__.py --bluesky-handle=$BLUESKY_USERNAME --bluesky-password=$BLUESKY_PASSWORD $RSS_FEED_URL
+    python $DEVENV_ROOT/rss-posse/__init__.py post-rss-to-bluesky --bluesky-handle=$BLUESKY_USERNAME --bluesky-password=$BLUESKY_PASSWORD $RSS_FEED_URL
   '';
 
   packages = with pkgs; [

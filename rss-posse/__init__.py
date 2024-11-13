@@ -18,46 +18,54 @@ def load_posted_ids():
     with open(POSTED_IDS_FILE, "r") as f:
         return set(line.strip() for line in f)
 
-# Function to save posted IDs
-def save_posted_ids(posted_ids):
-    with open(POSTED_IDS_FILE, "w") as f:
-        f.write("\n".join(posted_ids))
+def append_to_posted_ids(new_posted_ids: str):
+    with open(POSTED_IDS_FILE, "a") as f:
+        f.write("\n" + "\n".join(new_posted_ids))
 
 # Function to post an entry to Bluesky
-def post_to_bluesky(client: Client, entry_title: str, entry_link: str):
-    post_content = f"{entry_title}\n{entry_link}"
-    client.create_post(text=post_content)
+def post_to_bluesky(client: Client, post_content: str):
+    typer.echo(f"would be posting to bluesky: {post_content}")
+    # client.create_post(text=post_content)
 
+def id(entry):
+    return entry.id if hasattr(entry, "id") else entry.link
 
-@app.command()
-def rss_to_print(
-    rss_url: str = typer.Argument(..., help="URL of the RSS feed"),
-    only_unposted: bool = typer.Option(False, help="Print only unposted or all feed items")
-):
-    if only_unposted:
-        typer.echo("Loading posted entry IDs...")
-    posted_ids = load_posted_ids() if only_unposted else []
-
+def get_rss_entries(rss_url: str, only_unposted: bool):
     feed = feedparser.parse(rss_url)
 
     if feed.bozo:
         typer.secho("Failed to parse RSS feed. Please check the URL.", fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    typer.echo("Printing RSS entries...")
+    if only_unposted:
+        typer.echo("Loading posted entry IDs...")
+    posted_ids = load_posted_ids() if only_unposted else []
 
-    for entry in feed.entries:
-        entry_id = entry.id if hasattr(entry, "id") else entry.link
+    entries = [e for e in feed.entries if id(e) not in posted_ids]
 
-        if entry_id in posted_ids:
-            continue
+    return entries
 
+@app.command()
+def rss_to_print(
+    rss_url: str = typer.Argument(..., help="URL of the RSS feed"),
+    only_unposted: bool = typer.Option(False, help="Print only unposted or all feed items")
+):
+    entries = get_rss_entries(rss_url, only_unposted)
+
+    for entry in entries:
         entry_json = jsonpickle.encode(entry)
         entry_dict = json.loads(entry_json)
         for k in entry_dict.keys():
-            typer.echo(f"{k}: {entry_dict[k]}")
+            key_label = typer.style(k + ':', fg=typer.colors.GREEN, bold=True)
+            typer.echo(key_label + f" {entry_dict[k]}")
     
-
+@app.command()
+def skip_to_present(rss_url: str):
+    """Skip to the present state of the RSS feed."""
+    typer.echo("Skipping to the present state of the RSS feed...")
+    unposted_entries = get_rss_entries(rss_url, only_unposted=True)
+    # Update the posted IDs file with the IDs of the new entries
+    append_to_posted_ids([id(e) for e in unposted_entries])
 
 @app.command()
 def post_rss_to_bluesky(
@@ -66,16 +74,7 @@ def post_rss_to_bluesky(
     bluesky_password: str = typer.Option(..., prompt="Bluesky password")
 ):
     """Read an RSS feed and post unposted entries to Bluesky."""
-
-    typer.echo("Loading posted entry IDs...")
-    posted_ids = load_posted_ids()
-
-    typer.echo("Parsing RSS feed...")
-    feed = feedparser.parse(rss_url)
-
-    if feed.bozo:
-        typer.secho("Failed to parse RSS feed. Please check the URL.", fg=typer.colors.RED)
-        raise typer.Exit(code=1)
+    entries = get_rss_entries(rss_url, only_unposted=True)
 
     client = Client()
 
@@ -87,25 +86,19 @@ def post_rss_to_bluesky(
         raise typer.Exit(code=1)
 
     typer.echo("Processing RSS entries...")
-    new_ids = set()
 
-    for entry in feed.entries:
-        entry_id = entry.id if hasattr(entry, "id") else entry.link
-
-        if entry_id in posted_ids:
-            continue
-
+    for entry in entries:
         typer.echo(f"Posting entry: {entry.title}")
         try:
-            post_to_bluesky(client, entry.title, entry.link)
-            new_ids.add(entry_id)
+            post_content = f"{entry.title}\n{entry.link}"
+            post_to_bluesky(client, post_content)
         except Exception as e:
             typer.secho(f"Failed to post entry: {e}", fg=typer.colors.RED)
 
-    if new_ids:
+    new_ids = [id(e) for e in entries]
+    if new_ids.__len__():
         typer.echo("Saving new posted IDs...")
-        posted_ids.update(new_ids)
-        save_posted_ids(posted_ids)
+        append_to_posted_ids(new_ids)
 
     typer.secho("Done!", fg=typer.colors.GREEN)
 
