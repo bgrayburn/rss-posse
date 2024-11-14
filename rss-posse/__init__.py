@@ -5,6 +5,7 @@ import jsonpickle
 # import os
 from pathlib import Path
 from atproto import Client
+from content_formatter import bluesky_build_post
 
 app = typer.Typer()
 
@@ -21,11 +22,6 @@ def load_posted_ids():
 def append_to_posted_ids(new_posted_ids: str):
     with open(POSTED_IDS_FILE, "a") as f:
         f.write("\n" + "\n".join(new_posted_ids))
-
-# Function to post an entry to Bluesky
-def post_to_bluesky(client: Client, post_content: str):
-    typer.echo(f"would be posting to bluesky: {post_content}")
-    # client.create_post(text=post_content)
 
 def id(entry):
     return entry.id if hasattr(entry, "id") else entry.link
@@ -71,7 +67,8 @@ def skip_to_present(rss_url: str):
 def post_rss_to_bluesky(
     rss_url: str = typer.Argument(..., help="URL of the RSS feed"),
     bluesky_handle: str = typer.Option(..., prompt="Bluesky username (e.g., user.bsky.social)"),
-    bluesky_password: str = typer.Option(..., prompt="Bluesky password")
+    bluesky_password: str = typer.Option(..., prompt="Bluesky password"),
+    dry_run: bool = typer.Option(False, help="Dry run (do not post to Bluesky)")
 ):
     """Read an RSS feed and post unposted entries to Bluesky."""
     entries = get_rss_entries(rss_url, only_unposted=True)
@@ -90,15 +87,17 @@ def post_rss_to_bluesky(
     for entry in entries:
         typer.echo(f"Posting entry: {entry.title}")
         try:
-            post_content = f"{entry.title}\n{entry.link}"
-            post_to_bluesky(client, post_content)
+            text, facets = bluesky_build_post(entry)
+            if (not dry_run):
+                client.send_post(text=text, facets=facets)
         except Exception as e:
             typer.secho(f"Failed to post entry: {e}", fg=typer.colors.RED)
 
-    new_ids = [id(e) for e in entries]
-    if new_ids.__len__():
-        typer.echo("Saving new posted IDs...")
-        append_to_posted_ids(new_ids)
+    if (not dry_run):
+        new_ids = [id(e) for e in entries]
+        if new_ids.__len__():
+            typer.echo("Saving new posted IDs...")
+            append_to_posted_ids(new_ids)
 
     typer.secho("Done!", fg=typer.colors.GREEN)
 

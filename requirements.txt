@@ -3,3 +3,4 @@ ipython
 feedparser
 atproto
 jsonpickle
+python-handlebars
